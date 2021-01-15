@@ -80,7 +80,7 @@ npm install -g yarn
 
 ```bash
 mkdir scaling-test-fargate && cd scaling-test-fargate
-git clone https://gitlab.aws.dev/am3-app-modernization-gsp/scaled-test-execution.git .
+git clone https://github.com/hariohmprasath/scaled-test-execution.git .
 ```
 
 - Build the code using the following command:
