@@ -10,8 +10,10 @@ const env = {
 const stack = new cdk.Stack(app, 'testing-stack', { env });
 
 new SeleniumGridConstruct(stack, 'SeleniumHubCluster', {
-  cpu: 256,
-  memory: 512,
+  cpu: 1024,
+  memory: 2048,
   seleniumNodeMaxInstances: 500,
   seleniumNodeMaxSessions: 500,
+  minInstances: 1,
+  maxInstances: 10
 });

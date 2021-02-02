@@ -9,16 +9,20 @@ export interface ISeleniumGridProps {
     readonly cpu?: number;
     readonly seleniumNodeMaxInstances?: number;
     readonly seleniumNodeMaxSessions?: number;
+    readonly minInstances?: number;
+    readonly maxInstances?: number;
 }
-export interface IResourceDefinitinProps {
+export interface IResourceDefinitionProps {
     cluster: ecs.Cluster;
     stack: cdk.Construct;
     loadBalancer: elbv2.ApplicationLoadBalancer;
     securityGroup: ec2.SecurityGroup;
     identifier: string;
+    minInstances: number;
+    maxInstances: number;
 }
 export interface IServiceDefinitionProps {
-    resource: IResourceDefinitinProps;
+    resource: IResourceDefinitionProps;
     image: string;
     env: {
         [key: string]: string;
@@ -31,6 +35,8 @@ export interface IScalingPolicyDefinitionProps {
     serviceName: string;
     clusterName: string;
     identifier: string;
+    minInstances: number;
+    maxInstances: number;
 }
 export declare class SeleniumGridConstruct extends cdk.Construct {
     readonly vpc: ec2.IVpc;
@@ -39,9 +45,11 @@ export declare class SeleniumGridConstruct extends cdk.Construct {
     readonly cpu: number;
     readonly seleniumNodeMaxInstances: number;
     readonly seleniumNodeMaxSessions: number;
+    readonly minInstances: number;
+    readonly maxInstances: number;
     constructor(scope: cdk.Construct, id: string, props?: ISeleniumGridProps);
-    createHubResources(options: IResourceDefinitinProps): void;
-    createBrowserResource(options: IResourceDefinitinProps, image: string): void;
+    createHubResources(options: IResourceDefinitionProps): void;
+    createBrowserResource(options: IResourceDefinitionProps, image: string): void;
     createService(options: IServiceDefinitionProps): ecs.FargateService;
     createScalingPolicy(options: IScalingPolicyDefinitionProps): void;
 }

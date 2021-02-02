@@ -24,18 +24,26 @@ export interface ISeleniumGridProps {
 
   // Selenium NODE_MAX_SESSION pointing to number of browsers (Any browser and version) that can run in parallel at a time in node, ex: 5
   readonly seleniumNodeMaxSessions?: number;
+
+  // Auto-scale minimum number of instances
+  readonly minInstances?: number;
+
+  // Auto-scale maximum number of instances
+  readonly maxInstances?: number;
 }
 
-export interface IResourceDefinitinProps{
+export interface IResourceDefinitionProps{
   cluster: ecs.Cluster;
   stack: cdk.Construct;
   loadBalancer: elbv2.ApplicationLoadBalancer;
   securityGroup: ec2.SecurityGroup;
   identifier: string;
+  minInstances: number;
+  maxInstances: number;
 }
 
 export interface IServiceDefinitionProps{
-  resource: IResourceDefinitinProps;
+  resource: IResourceDefinitionProps;
   image: string;
   env: {[key: string]: string};
   readonly entryPoint?: string[];
@@ -47,6 +55,8 @@ export interface IScalingPolicyDefinitionProps{
   serviceName: string;
   clusterName: string;
   identifier: string;
+  minInstances: number;
+  maxInstances: number;
 }
 
 export class SeleniumGridConstruct extends cdk.Construct {
@@ -57,6 +67,8 @@ export class SeleniumGridConstruct extends cdk.Construct {
   readonly cpu: number;
   readonly seleniumNodeMaxInstances: number;
   readonly seleniumNodeMaxSessions: number;
+  readonly minInstances: number;
+  readonly maxInstances: number;
 
   constructor(scope: cdk.Construct, id: string, props: ISeleniumGridProps = {}) {
     super(scope, id);
@@ -68,6 +80,8 @@ export class SeleniumGridConstruct extends cdk.Construct {
     this.cpu = props.cpu ?? 256;
     this.seleniumNodeMaxInstances = props.seleniumNodeMaxInstances ?? 5;
     this.seleniumNodeMaxSessions = props.seleniumNodeMaxSessions ?? 5;
+    this.minInstances = props.minInstances ?? 1;
+    this.maxInstances = props.maxInstances ?? 10;
 
     // Cluster
     const cluster = new ecs.Cluster(this, 'cluster', {
@@ -111,6 +125,8 @@ export class SeleniumGridConstruct extends cdk.Construct {
       loadBalancer: loadBalancer,
       securityGroup: securityGroup,
       stack: this,
+      maxInstances: this.maxInstances,
+      minInstances: this.minInstances     
     });
 
     // Register Chrome node resources
@@ -120,6 +136,8 @@ export class SeleniumGridConstruct extends cdk.Construct {
       loadBalancer: loadBalancer,
       securityGroup: securityGroup,
       stack: this,
+      maxInstances: this.maxInstances,
+      minInstances: this.minInstances
     }, 'selenium/node-chrome');
 
     // Register Firefox node resources
@@ -129,6 +147,8 @@ export class SeleniumGridConstruct extends cdk.Construct {
       loadBalancer: loadBalancer,
       securityGroup: securityGroup,
       stack: this,
+      maxInstances: this.maxInstances,
+      minInstances: this.minInstances
     }, 'selenium/node-firefox');
 
     new cdk.CfnOutput(this, 'LoadBalancerDNS', {
@@ -137,7 +157,7 @@ export class SeleniumGridConstruct extends cdk.Construct {
     });
   }
 
-  createHubResources(options: IResourceDefinitinProps) {
+  createHubResources(options: IResourceDefinitionProps) {
     var service = this.createService({
       resource: options,
       env: {
@@ -154,6 +174,8 @@ export class SeleniumGridConstruct extends cdk.Construct {
       serviceName: service.serviceName,
       identifier: options.identifier,
       stack: options.stack,
+      minInstances: options.minInstances,
+      maxInstances: options.maxInstances
     });
 
     // Default target routing for 4444 so webdriver client can connect to
@@ -171,7 +193,7 @@ export class SeleniumGridConstruct extends cdk.Construct {
     });
   }
 
-  createBrowserResource(options: IResourceDefinitinProps, image: string) {
+  createBrowserResource(options: IResourceDefinitionProps, image: string) {
 
     // Env parameters configured to connect back to selenium hub when new nodes gets added
     var service = this.createService({
@@ -195,6 +217,8 @@ export class SeleniumGridConstruct extends cdk.Construct {
       serviceName: service.serviceName,
       identifier: options.identifier,
       stack: options.stack,
+      minInstances: options.minInstances,
+      maxInstances: options.maxInstances
     });
   }
 
@@ -205,7 +229,10 @@ export class SeleniumGridConstruct extends cdk.Construct {
     const securityGroup = options.resource.securityGroup;
 
     // Task and container definition
-    const taskDefinition = new ecs.FargateTaskDefinition(stack, 'selenium-'+identiifer+'-task-def');
+    const taskDefinition = new ecs.FargateTaskDefinition(stack, 'selenium-'+identiifer+'-task-def',{
+      memoryLimitMiB: this.memory,
+      cpu: this.cpu
+    });
     const containerDefinition = taskDefinition.addContainer('selenium-'+identiifer+'-container', {
       image: ecs.ContainerImage.fromRegistry(options.image),
       memoryLimitMiB: this.memory,
@@ -231,7 +258,7 @@ export class SeleniumGridConstruct extends cdk.Construct {
       cluster: cluster,
       taskDefinition: taskDefinition,
       minHealthyPercent: 75,
-      maxHealthyPercent: 100,
+      maxHealthyPercent: 100,      
       securityGroups: [securityGroup],
     });
   }
@@ -243,12 +270,12 @@ export class SeleniumGridConstruct extends cdk.Construct {
     const stack = options.stack;
 
     // Scaling set on ECS service level
-    const target = new applicationautoscaling.ScalableTarget(stack, 'selenium-hub-step-scalableTarget-'+identifier, {
+    const target = new applicationautoscaling.ScalableTarget(stack, 'selenium-scalableTarget-'+identifier, {
       serviceNamespace: applicationautoscaling.ServiceNamespace.ECS,
-      maxCapacity: 10,
-      minCapacity: 1,
+      maxCapacity: options.maxInstances,
+      minCapacity: options.minInstances,
       resourceId: 'service/'+clusterName+'/'+serviceName,
-      scalableDimension: 'ecs:service:DesiredCount',
+      scalableDimension: 'ecs:service:DesiredCount',    
     });
 
     // Metrics to listen
@@ -265,15 +292,15 @@ export class SeleniumGridConstruct extends cdk.Construct {
 
     // Define Scaling policies (scale-in and scale-out)
     // Remove one instance if CPUUtilization is less than 30%,
-    // Add one instance if the CPUUtilization is greater than 70%
+    // Add three instance if the CPUUtilization is greater than 70%    
     target.scaleOnMetric('step-metric-scaling-'+identifier, {
-      metric: workerUtilizationMetric,
-      adjustmentType: applicationautoscaling.AdjustmentType.CHANGE_IN_CAPACITY,
+      metric: workerUtilizationMetric,          
+      adjustmentType: applicationautoscaling.AdjustmentType.CHANGE_IN_CAPACITY,      
       scalingSteps: [
         { upper: 30, change: -1 },
-        { lower: 70, change: +1 },
-      ],
-      cooldown: cdk.Duration.seconds(180),
-    });
+        { lower: 80, change: +3 },
+      ],    
+      cooldown: cdk.Duration.seconds(180),      
+    }); 
   }
 }

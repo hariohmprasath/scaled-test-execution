@@ -1,4 +1,4 @@
-# Scaling integration and regression tests using ECS Fargate
+# Run integration and regression tests in scale
 
 This article talks about an approach that can help customers run integration and regression tests quicker and cheaper to improve the CI/CD process.
 
@@ -30,7 +30,7 @@ Here is the high-level view of all the components
 
 - `Selenium Hub`,` "Chrome Node (selenium docker image with headless chrome)`, and `Firefox Node (selenium docker image with headless firefox)` are deployed as ECS services
 - All ECS services have autoscaling enabled, with the following scale in and scale out policies:
-    - Add one instance if `max(CPUUtilization) >= 70` in last 1 minute
+    - Add three instances if `max(CPUUtilization) >= 70` in last 1 minute
     - Remove one instance if `max(CPUUtilization) <= 30` in last 1 minute
 - `Selenium Hub` is backed by an "Application Load Balancer" to which web driver clients connect to run the tests
 CloudWatch logs enable-Observability.
@@ -52,7 +52,7 @@ Here is the sequence of events that happens when we execute a test case using th
 
 ![init](images/sequence.svg)
 
-# Build & Deployment
+# Build & Deploy
 
 ## Pre-requistes
 
@@ -74,22 +74,14 @@ npm install -g yarn
 
 - An AWS account and console access
 
-## Build
+## Deployment
 
 - Check out the code from this repository using this command:
 
 ```bash
-mkdir scaling-test-fargate && cd scaling-test-fargate
-git clone https://github.com/hariohmprasath/scaled-test-execution.git .
+mkdir scaling-test-execution && cd scaling-test-execution
+git clone hhttps://github.com/hariohmprasath/scaled-test-execution.git .
 ```
-
-- Build the code using the following command:
-
-```bash
-yarn watch
-```
-
-## Deploy
 
 - As the code is created as a CDK construct, the following parameters can be customized as part of the deployment
 
@@ -101,12 +93,13 @@ yarn watch
 | cpu | CPU settings for hub and chrome fargate nodes | 256 |
 | seleniumNodeMaxInstances | Selenium `NODE_MAX_INSTANCES` pointing to the number of instances of the same version of browser that can run in node | 5 |
 | seleniumNodeMaxSessions | Selenium `NODE_MAX_SESSION` pointing to the number of browsers (Any browser and version) that can run in parallel at a time in node | 5 |
+| minInstances | Minimum number of instances for autoscaling chrome, firefox and selenium services | 1 |
+| maxInstances | Maximum number of instances for autoscaling chrome, firefox and selenium services | 10 |
 
 - Run the following command to start the deployment
 
 ```bash
-cd scaling-test-fargate
-cdk deploy --app='./lib/integ.default.js'
+cdk deploy --require-approval never
 ```
 
 > Once the deployment is successful, you should see the 'Selenium-Hub-DNS' in the CfnOutput.
@@ -117,7 +110,9 @@ The complete selenium hub load balancer URL will look like.
 http://<<Selenium-Hub-DNS>>:4444/wb/hub
 ```
 
-# Unit testing
+# Testing
+
+## Unit testing
 
 Unit testcases can be executed by running the following command from the root directory
 
@@ -150,7 +145,7 @@ Ran all test suites.
 ✨  Done in 17.45s.
 ```
 
-# Integration testing (using webdriver)
+## Integration testing (using webdriver)
 
 A sample test case can you found under ```sample-test-function``` folder, you can run the following commands to build and execute the tests against the selenium hub load balancer url
 
@@ -174,15 +169,55 @@ All test cases should successfully pass and here is how it looks like
 [chrome 87.0.4280.88 linux #0-0] 2 passing (8.2s)
 
 
-Spec Files:	 1 passed, 1 total (100% completed) in 00:00:10
+Spec Files:	1 passed, 1 total (100% completed) in 00:00:10
 ```
+
+## Load testing (using webdriver)
+
+## Scale up
+
+To simulate load test we ran the above mentioned testcase in parallel (closer to 10 concurrent session), which made the `CPUUtilization` to go above 70%, resulting in autoscaling.
+
+Here are few screen shots captured using Container Insights and AWS ECS console
+
+### AWS ECS Console
+
+**ECS Tasks**
+
+![ECS-Task](images/ECS-Task-Count.png)
+
+**ECS Service**
+
+![ECS-Service](images/ECS-Service-Count.png)
+
+### Graphs using Container Insights
+
+**ECS Cluster**
+
+![ECS-Service-Graph](images/ECS-Cluster-Graph.png)
+
+**ECS Tasks**
+
+![ECS-Task-Graph](images/ECS-Tasks-Graph.png)
+
+**Map view**
+
+![ECS-Service-Map-view](images/ECS-Service-Map-view.png)
+
+## Scale down
+
+After successful test case execution the cluster will automatically scaling down when the `CPUUtilization` goes below 30% with a cooldown interval of 180 seconds
+
+Here is the preview of ECS services running with just one instance after scaling down to the desired capacity
+
+![ECS-Scale-down](images/ECS-Scale-down.png)
 
 # Cleanup
 
 Run the following command from root directory to delete the stack
 
 ```bash
-cdk destroy --app='./lib/integ.default.js'
+cdk destroy
 ```
 
 # Resources
